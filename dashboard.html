@@ -2084,6 +2084,98 @@
                 }
             }
 
+            async initializeCompass() {
+                console.log('🧭 Initializing compass...');
+                
+                if (!window.DeviceOrientationEvent) {
+                    console.log('❌ Device orientation not supported');
+                    this.updateStatus('Device orientation not supported', true);
+                    return;
+                }
+
+                try {
+                    // Check if permission is needed (iOS 13+)
+                    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+                        console.log('📱 Requesting device orientation permission...');
+                        const permission = await DeviceOrientationEvent.requestPermission();
+                        
+                        if (permission === 'granted') {
+                            console.log('✅ Device orientation permission granted');
+                            this.setupOrientationListener();
+                        } else {
+                            console.log('❌ Device orientation permission denied');
+                            this.updateStatus('Compass permission denied', true);
+                        }
+                    } else {
+                        // Non-iOS devices or older iOS
+                        console.log('🔧 Setting up orientation listener (no permission needed)');
+                        this.setupOrientationListener();
+                    }
+                } catch (error) {
+                    console.error('❌ Compass initialization error:', error);
+                    this.updateStatus('Compass initialization failed', true);
+                }
+            }
+
+            setupOrientationListener() {
+                console.log('🎯 Setting up orientation listener...');
+                
+                window.addEventListener('deviceorientation', (event) => {
+                    try {
+                        // Use webkitCompassHeading for iOS, alpha for Android
+                        let heading = null;
+                        
+                        if (event.webkitCompassHeading !== undefined && event.webkitCompassHeading !== null) {
+                            // iOS - webkitCompassHeading gives true magnetic heading
+                            heading = event.webkitCompassHeading;
+                            console.log('📱 iOS compass heading:', heading);
+                        } else if (event.alpha !== null) {
+                            // Android and others - alpha gives rotation around z-axis
+                            heading = 360 - event.alpha; // Invert for proper compass direction
+                            console.log('🤖 Android compass heading:', heading);
+                        }
+                        
+                        if (heading !== null && !isNaN(heading)) {
+                            this.heading = Math.round(heading);
+                            this.updateCompass(this.heading);
+                            
+                            const headingEl = document.getElementById('heading');
+                            if (headingEl) {
+                                headingEl.textContent = this.heading;
+                            }
+                            
+                            // Update status to show compass is working
+                            if (this.heading !== 0) {
+                                this.updateStatus('Compass active - move device to test', false);
+                            }
+                        }
+                    } catch (error) {
+                        console.error('❌ Orientation event error:', error);
+                    }
+                }, true);
+
+                // Add a test message
+                setTimeout(() => {
+                    const headingEl = document.getElementById('heading');
+                    if (headingEl && headingEl.textContent === '--') {
+                        console.log('⚠️ No compass data received after 3 seconds');
+                        this.updateStatus('Move device to activate compass', false);
+                    }
+                }, 3000);
+            }
+
+            updateCompass(heading) {
+                try {
+                    const needle = document.getElementById('compassNeedle');
+                    if (needle) {
+                        // Rotate the needle to point north
+                        needle.style.transform = `translate(-50%, -50%) rotate(${heading}deg)`;
+                    }
+                } catch (error) {
+                    console.error('❌ Compass update error:', error);
+                }
+            }
+
             onSoccerBallClick() {
                 console.log('⚽ Soccer ball clicked!');
                 try {
