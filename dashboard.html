@@ -507,32 +507,33 @@
             color: #f44336;
         }
 
-        /* Compass Component */
+        /* Compass Component - Made bigger and more visible */
         .compass-container {
             position: absolute;
             top: 50%;
-            right: 8px;
+            right: 4px;
             transform: translateY(-50%);
-            width: 24px;
-            height: 24px;
+            width: 32px;
+            height: 32px;
         }
 
         .compass {
             width: 100%;
             height: 100%;
-            border: 1px solid rgba(255, 107, 53, 0.5);
+            border: 2px solid rgba(255, 107, 53, 0.8);
             border-radius: 50%;
-            background: radial-gradient(circle, rgba(255, 107, 53, 0.1) 0%, rgba(255, 107, 53, 0.05) 100%);
+            background: radial-gradient(circle, rgba(255, 107, 53, 0.15) 0%, rgba(255, 107, 53, 0.05) 100%);
             position: relative;
             transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
         }
 
         .compass-needle {
             position: absolute;
             top: 50%;
             left: 50%;
-            width: 2px;
-            height: 10px;
+            width: 3px;
+            height: 14px;
             transform: translate(-50%, -50%);
             transform-origin: center center;
             transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
@@ -546,8 +547,8 @@
             width: 100%;
             height: 50%;
             background: #FF6B35;
-            border-radius: 1px 1px 0 0;
-            box-shadow: 0 0 2px rgba(255, 107, 53, 0.8);
+            border-radius: 2px 2px 0 0;
+            box-shadow: 0 0 3px rgba(255, 107, 53, 0.8);
         }
 
         .compass-needle::after {
@@ -557,19 +558,32 @@
             left: 0;
             width: 100%;
             height: 50%;
-            background: rgba(255, 255, 255, 0.8);
-            border-radius: 0 0 1px 1px;
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 0 0 2px 2px;
+            box-shadow: 0 0 2px rgba(0, 0, 0, 0.3);
         }
 
         .compass-n {
             position: absolute;
-            top: 1px;
+            top: 2px;
             left: 50%;
             transform: translateX(-50%);
-            font-size: 8px;
+            font-size: 10px;
             color: #FF6B35;
-            font-weight: 700;
-            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+            font-weight: 800;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+        }
+
+        .compass-center {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 4px;
+            height: 4px;
+            background: #FF6B35;
+            border-radius: 50%;
+            border: 1px solid rgba(255, 255, 255, 0.8);
         }
 
         /* Mode Indicator - Hidden for AR mode to avoid duplication */
@@ -1672,6 +1686,7 @@
                     <div class="compass-container">
                         <div class="compass">
                             <div class="compass-needle" id="compassNeedle"></div>
+                            <div class="compass-center"></div>
                             <div class="compass-n">N</div>
                         </div>
                     </div>
@@ -2019,26 +2034,8 @@
                         btn.addEventListener('click', (e) => this.filterAlbum(e.target.dataset.filter));
                     });
 
-                    // Enhanced heading detection for device orientation
-                    if (window.DeviceOrientationEvent) {
-                        // Request permission for iOS 13+
-                        if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-                            DeviceOrientationEvent.requestPermission()
-                                .then(permissionState => {
-                                    if (permissionState === 'granted') {
-                                        this.setupOrientationListener();
-                                    } else {
-                                        console.log('Device orientation permission denied');
-                                    }
-                                })
-                                .catch(console.error);
-                        } else {
-                            // Non-iOS devices
-                            this.setupOrientationListener();
-                        }
-                    } else {
-                        console.log('Device orientation not supported');
-                    }
+                    // Enhanced heading detection with proper permission handling
+                    this.initializeCompass();
 
                     console.log('✅ Event listeners setup complete');
                 } catch (error) {
@@ -2872,6 +2869,7 @@
                     this.initializeMap();
                     this.setupThreeJS();
                     this.generateCardLocations();
+                    await this.initializeCompass(); // Initialize compass after GPS
                     
                     const arTab = document.getElementById('arTab');
                     if (arTab) arTab.classList.remove('disabled');
