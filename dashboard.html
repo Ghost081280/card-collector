@@ -2316,11 +2316,9 @@
                 try {
                     // Check if permission is needed (iOS 13+)
                     if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-                        console.log('📱 Requesting device orientation permission...');
-                        
-                        // Create a user interaction button for iOS
-                        this.showCompassPermissionButton();
-                        
+                        console.log('📱 iOS device detected - will request compass permission when needed');
+                        // Don't request permission here - will be requested when user switches to AR
+                        this.startSimulatedCompass(); // Use simulation for now
                     } else {
                         // Non-iOS devices or older iOS
                         console.log('🔧 Setting up orientation listener (no permission needed)');
@@ -2340,58 +2338,75 @@
                 }
             }
 
-            showCompassPermissionButton() {
-                // For iOS, we need user interaction to request permission
-                const compassBtn = document.createElement('button');
-                compassBtn.textContent = '🧭 Enable Compass';
-                compassBtn.style.cssText = `
-                    position: fixed;
-                    top: 50%;
-                    left: 50%;
-                    transform: translate(-50%, -50%);
-                    z-index: 400;
-                    background: linear-gradient(135deg, #FF6B35, #F7931E);
-                    color: white;
-                    border: none;
-                    padding: 16px 24px;
-                    border-radius: 12px;
-                    font-size: 14px;
-                    font-weight: 600;
-                    cursor: pointer;
-                    box-shadow: 0 8px 25px rgba(255, 107, 53, 0.4);
-                `;
-                
-                compassBtn.onclick = async () => {
-                    try {
-                        const permission = await DeviceOrientationEvent.requestPermission();
-                        if (permission === 'granted') {
-                            console.log('✅ Device orientation permission granted');
-                            this.setupOrientationListener();
-                            this.updateStatus('Compass enabled! Move device to test', false);
-                        } else {
-                            console.log('❌ Device orientation permission denied');
-                            this.startSimulatedCompass();
-                        }
-                    } catch (error) {
-                        console.error('❌ Permission request failed:', error);
-                        this.startSimulatedCompass();
-                    }
-                    document.body.removeChild(compassBtn);
+            async requestDevicePermissions() {
+                // Request both camera and compass permissions together
+                const permissions = {
+                    camera: false,
+                    compass: false
                 };
-                
-                document.body.appendChild(compassBtn);
-                
-                // Auto-remove after 5 seconds and start simulation
-                setTimeout(() => {
-                    if (document.body.contains(compassBtn)) {
-                        document.body.removeChild(compassBtn);
-                        this.startSimulatedCompass();
+
+                try {
+                    // Request camera permission
+                    const video = document.getElementById('video');
+                    if (!video) throw new Error('Video element not found');
+                    
+                    const constraints = {
+                        video: {
+                            facingMode: 'environment',
+                            width: { ideal: 1280 },
+                            height: { ideal: 720 }
+                        }
+                    };
+
+                    this.cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
+                    video.srcObject = this.cameraStream;
+                    permissions.camera = true;
+                    console.log('📷 Camera permission granted');
+
+                    // Start video
+                    await new Promise((resolve) => {
+                        video.onloadedmetadata = () => {
+                            video.play();
+                            resolve();
+                        };
+                    });
+
+                    // Request compass permission (iOS only)
+                    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+                        try {
+                            const compassPermission = await DeviceOrientationEvent.requestPermission();
+                            if (compassPermission === 'granted') {
+                                permissions.compass = true;
+                                this.setupOrientationListener();
+                                console.log('🧭 Compass permission granted');
+                            } else {
+                                console.log('❌ Compass permission denied, using simulation');
+                            }
+                        } catch (compassError) {
+                            console.log('⚠️ Compass permission request failed, using simulation');
+                        }
+                    } else {
+                        // Non-iOS devices
+                        this.setupOrientationListener();
+                        permissions.compass = true;
                     }
-                }, 5000);
+
+                    return permissions;
+
+                } catch (error) {
+                    console.error('❌ Device permissions error:', error);
+                    throw new Error('Camera access denied or not available');
+                }
             }
 
             startSimulatedCompass() {
                 console.log('🎮 Starting simulated compass for demo');
+                
+                // Clear any existing interval
+                if (this.compassInterval) {
+                    clearInterval(this.compassInterval);
+                }
+                
                 this.updateStatus('Demo compass active', false);
                 
                 let simulatedHeading = 0;
@@ -2811,13 +2826,26 @@
                     document.getElementById('canvas').style.display = 'block';
                     document.getElementById('albumView').style.display = 'none';
                     
-                    // Start camera
+                    // Request both camera and compass permissions together
                     try {
-                        await this.startCamera();
-                        console.log('📷 Camera started successfully');
+                        const permissions = await this.requestDevicePermissions();
+                        console.log('📷🧭 Device permissions:', permissions);
+                        
+                        if (permissions.camera) {
+                            this.updateStatus('AR mode active - camera ready!', false);
+                        }
+                        
+                        if (!permissions.compass) {
+                            console.log('🧭 Using simulated compass for demo');
+                            if (!this.compassInterval) {
+                                this.startSimulatedCompass();
+                            }
+                        }
+                        
                     } catch (error) {
-                        console.error('❌ Camera start failed:', error);
+                        console.error('❌ Device permissions failed:', error);
                         this.updateStatus('❌ Camera access required for AR mode', true);
+                        return;
                     }
                     
                     // Show instructions
@@ -2892,6 +2920,13 @@
                         });
                         this.cameraStream = null;
                         console.log('📷 Camera stopped');
+                    }
+                    
+                    // Stop simulated compass when leaving AR mode
+                    if (this.compassInterval) {
+                        clearInterval(this.compassInterval);
+                        this.compassInterval = null;
+                        console.log('🧭 Simulated compass stopped');
                     }
                     
                     const video = document.getElementById('video');
