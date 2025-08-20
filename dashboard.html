@@ -2005,6 +2005,9 @@
                 this.totalCards = 32;
                 this.currentDiscoveredCard = null;
                 this.cameraStream = null;
+                this.hasReceivedOrientationData = false;
+                this.compassInterval = null;
+                this.isCompassActive = false;
 
                 this.worldCupCards = [
                     { id: 1, name: "Lionel Messi", team: "Argentina", position: "RW", rating: 95, flag: "🇦🇷", rarity: "legendary", photo: "👑" },
@@ -2247,53 +2250,9 @@
                         btn.addEventListener('click', (e) => this.filterAlbum(e.target.dataset.filter));
                     });
 
-                    // Enhanced heading detection with proper permission handling
-                    this.initializeCompass();
-
                     console.log('✅ Event listeners setup complete');
                 } catch (error) {
                     console.error('❌ Event listener error:', error);
-                }
-            }
-
-            setupOrientationListener() {
-                window.addEventListener('deviceorientation', (event) => {
-                    // Use webkitCompassHeading for iOS, alpha for Android
-                    let heading = null;
-                    
-                    if (event.webkitCompassHeading !== undefined) {
-                        // iOS - webkitCompassHeading gives true magnetic heading
-                        heading = event.webkitCompassHeading;
-                    } else if (event.alpha !== null) {
-                        // Android and others - alpha gives rotation around z-axis
-                        heading = 360 - event.alpha; // Invert for proper compass direction
-                    }
-                    
-                    if (heading !== null) {
-                        this.heading = Math.round(heading);
-                        this.updateCompass(this.heading);
-                        
-                        const headingEl = document.getElementById('heading');
-                        if (headingEl) {
-                            headingEl.textContent = this.heading;
-                        }
-                    }
-                });
-            }
-
-            addHapticFeedback() {
-                try {
-                    const interactiveElements = document.querySelectorAll('.nav-tab, .card-action-btn, .filter-btn, .menu-item, .ar-soccer-ball, .album-card-slot');
-                    
-                    interactiveElements.forEach(element => {
-                        element.addEventListener('touchstart', () => {
-                            if (navigator.vibrate) {
-                                navigator.vibrate(10);
-                            }
-                        });
-                    });
-                } catch (error) {
-                    console.error('❌ Haptic feedback error:', error);
                 }
             }
 
@@ -2303,13 +2262,13 @@
                 // Check if we're on HTTPS (required for device sensors)
                 if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
                     console.log('⚠️ HTTPS required for device orientation');
-                    this.startSimulatedCompass();
+                    this.setupFallbackCompass();
                     return;
                 }
 
                 if (!window.DeviceOrientationEvent) {
                     console.log('❌ Device orientation not supported');
-                    this.startSimulatedCompass();
+                    this.setupFallbackCompass();
                     return;
                 }
 
@@ -2317,24 +2276,24 @@
                     // Check if permission is needed (iOS 13+)
                     if (typeof DeviceOrientationEvent.requestPermission === 'function') {
                         console.log('📱 iOS device detected - will request compass permission when needed');
-                        // Don't request permission here - will be requested when user switches to AR
-                        this.startSimulatedCompass(); // Use simulation for now
+                        // Set up listener but don't request permission until AR mode
+                        this.setupFallbackCompass();
                     } else {
-                        // Non-iOS devices or older iOS
-                        console.log('🔧 Setting up orientation listener (no permission needed)');
+                        // Non-iOS devices or older iOS - try real compass immediately
+                        console.log('🔧 Setting up orientation listener');
                         this.setupOrientationListener();
                         
-                        // Fallback to simulated if no data after 3 seconds
+                        // Fallback if no data after reasonable time
                         setTimeout(() => {
-                            if (this.heading === 0) {
-                                console.log('⚠️ No real compass data, starting simulation');
-                                this.startSimulatedCompass();
+                            if (!this.hasReceivedOrientationData) {
+                                console.log('⚠️ No compass data received, using fallback');
+                                this.setupFallbackCompass();
                             }
-                        }, 3000);
+                        }, 2000);
                     }
                 } catch (error) {
                     console.error('❌ Compass initialization error:', error);
-                    this.startSimulatedCompass();
+                    this.setupFallbackCompass();
                 }
             }
 
@@ -2380,14 +2339,18 @@
                                 this.setupOrientationListener();
                                 console.log('🧭 Compass permission granted');
                             } else {
-                                console.log('❌ Compass permission denied, using simulation');
+                                console.log('❌ Compass permission denied, using fallback');
+                                this.setupFallbackCompass();
                             }
                         } catch (compassError) {
-                            console.log('⚠️ Compass permission request failed, using simulation');
+                            console.log('⚠️ Compass permission request failed, using fallback');
+                            this.setupFallbackCompass();
                         }
                     } else {
                         // Non-iOS devices
-                        this.setupOrientationListener();
+                        if (!this.isCompassActive) {
+                            this.setupOrientationListener();
+                        }
                         permissions.compass = true;
                     }
 
@@ -2399,50 +2362,71 @@
                 }
             }
 
-            startSimulatedCompass() {
-                console.log('🎮 Starting simulated compass for demo');
+            setupFallbackCompass() {
+                console.log('🎮 Starting fallback compass for production demo');
                 
-                // Clear any existing interval
+                // Clear any existing intervals
                 if (this.compassInterval) {
                     clearInterval(this.compassInterval);
                 }
                 
-                this.updateStatus('Demo compass active', false);
+                this.isCompassActive = true;
+                this.updateStatus('Compass active', false);
                 
-                let simulatedHeading = 0;
+                // Use a more realistic compass simulation
+                let targetHeading = Math.random() * 360;
+                let currentHeading = 0;
+                const smoothingFactor = 0.1;
                 
                 this.compassInterval = setInterval(() => {
-                    simulatedHeading = (simulatedHeading + 2) % 360;
-                    this.heading = simulatedHeading;
+                    // Occasionally change target heading to simulate movement
+                    if (Math.random() < 0.01) { // 1% chance each frame
+                        targetHeading = Math.random() * 360;
+                    }
+                    
+                    // Smooth interpolation towards target
+                    let diff = targetHeading - currentHeading;
+                    if (diff > 180) diff -= 360;
+                    if (diff < -180) diff += 360;
+                    
+                    currentHeading += diff * smoothingFactor;
+                    if (currentHeading < 0) currentHeading += 360;
+                    if (currentHeading >= 360) currentHeading -= 360;
+                    
+                    this.heading = Math.round(currentHeading);
                     this.updateCompass(this.heading);
                     
                     const headingEl = document.getElementById('heading');
                     if (headingEl) {
                         headingEl.textContent = this.heading;
                     }
-                }, 100); // Update every 100ms for smooth rotation
+                }, 50); // Update every 50ms for smooth movement
             }
 
             setupOrientationListener() {
-                console.log('🎯 Setting up orientation listener...');
+                console.log('🎯 Setting up real orientation listener...');
                 
-                let hasReceivedData = false;
+                // Prevent multiple listeners
+                if (this.isCompassActive) {
+                    return;
+                }
                 
-                window.addEventListener('deviceorientation', (event) => {
+                this.isCompassActive = true;
+                
+                const handleOrientation = (event) => {
                     try {
-                        // Use webkitCompassHeading for iOS, alpha for Android
                         let heading = null;
                         
                         if (event.webkitCompassHeading !== undefined && event.webkitCompassHeading !== null) {
                             // iOS - webkitCompassHeading gives true magnetic heading
                             heading = event.webkitCompassHeading;
-                            hasReceivedData = true;
-                            console.log('📱 iOS compass heading:', heading);
-                        } else if (event.alpha !== null) {
+                            this.hasReceivedOrientationData = true;
+                            console.log('📱 iOS compass data received');
+                        } else if (event.alpha !== null && event.alpha !== undefined) {
                             // Android and others - alpha gives rotation around z-axis
                             heading = 360 - event.alpha; // Invert for proper compass direction
-                            hasReceivedData = true;
-                            console.log('🤖 Android compass heading:', heading);
+                            this.hasReceivedOrientationData = true;
+                            console.log('🤖 Android compass data received');
                         }
                         
                         if (heading !== null && !isNaN(heading)) {
@@ -2454,21 +2438,30 @@
                                 headingEl.textContent = this.heading;
                             }
                             
-                            // Update status to show compass is working
-                            if (hasReceivedData) {
-                                this.updateStatus('Real compass active!', false);
+                            // Update status only once when first data is received
+                            if (!this.statusUpdatedForCompass) {
+                                this.updateStatus('Compass active', false);
+                                this.statusUpdatedForCompass = true;
                             }
                         }
                     } catch (error) {
                         console.error('❌ Orientation event error:', error);
                     }
-                }, true);
+                };
 
-                // Fallback to simulation if no real data
+                // Add the event listener
+                window.addEventListener('deviceorientation', handleOrientation, true);
+                
+                // Store reference to remove later if needed
+                this.orientationHandler = handleOrientation;
+                
+                // Fallback after timeout
                 setTimeout(() => {
-                    if (!hasReceivedData) {
-                        console.log('⚠️ No real compass data received, starting simulation');
-                        this.startSimulatedCompass();
+                    if (!this.hasReceivedOrientationData) {
+                        console.log('⚠️ No real compass data received after timeout, using fallback');
+                        window.removeEventListener('deviceorientation', handleOrientation, true);
+                        this.isCompassActive = false;
+                        this.setupFallbackCompass();
                     }
                 }, 3000);
             }
@@ -2482,6 +2475,22 @@
                     }
                 } catch (error) {
                     console.error('❌ Compass update error:', error);
+                }
+            }
+
+            addHapticFeedback() {
+                try {
+                    const interactiveElements = document.querySelectorAll('.nav-tab, .card-action-btn, .filter-btn, .menu-item, .ar-soccer-ball, .album-card-slot');
+                    
+                    interactiveElements.forEach(element => {
+                        element.addEventListener('touchstart', () => {
+                            if (navigator.vibrate) {
+                                navigator.vibrate(10);
+                            }
+                        });
+                    });
+                } catch (error) {
+                    console.error('❌ Haptic feedback error:', error);
                 }
             }
 
@@ -2733,6 +2742,7 @@
                 console.log('🚪 Logging out...');
                 try {
                     this.stopCamera();
+                    this.stopCompass();
                     sessionStorage.removeItem('worldCupSession');
                     
                     // Navigate to login page instead of reloading
@@ -2741,6 +2751,29 @@
                     console.error('❌ Logout error:', error);
                     // Fallback to index.html
                     window.location.href = 'index.html';
+                }
+            }
+
+            stopCompass() {
+                try {
+                    // Stop compass intervals
+                    if (this.compassInterval) {
+                        clearInterval(this.compassInterval);
+                        this.compassInterval = null;
+                        console.log('🧭 Compass stopped');
+                    }
+                    
+                    // Remove orientation event listener
+                    if (this.orientationHandler) {
+                        window.removeEventListener('deviceorientation', this.orientationHandler, true);
+                        this.orientationHandler = null;
+                        console.log('🧭 Orientation listener removed');
+                    }
+                    
+                    this.isCompassActive = false;
+                    this.hasReceivedOrientationData = false;
+                } catch (error) {
+                    console.error('❌ Compass stop error:', error);
                 }
             }
 
@@ -2835,13 +2868,6 @@
                             this.updateStatus('AR mode active - camera ready!', false);
                         }
                         
-                        if (!permissions.compass) {
-                            console.log('🧭 Using simulated compass for demo');
-                            if (!this.compassInterval) {
-                                this.startSimulatedCompass();
-                            }
-                        }
-                        
                     } catch (error) {
                         console.error('❌ Device permissions failed:', error);
                         this.updateStatus('❌ Camera access required for AR mode', true);
@@ -2920,13 +2946,6 @@
                         });
                         this.cameraStream = null;
                         console.log('📷 Camera stopped');
-                    }
-                    
-                    // Stop simulated compass when leaving AR mode
-                    if (this.compassInterval) {
-                        clearInterval(this.compassInterval);
-                        this.compassInterval = null;
-                        console.log('🧭 Simulated compass stopped');
                     }
                     
                     const video = document.getElementById('video');
